@@ -8,14 +8,6 @@ export const CATEGORIES = [
 
 export type CategoryKey = (typeof CATEGORIES)[number];
 
-// Categories that allow multiple ingredients (up to 3)
-export const MULTI_CATEGORIES: CategoryKey[] = [
-  "starch",
-  "protein",
-  "vegetables",
-  "topper",
-];
-
 export const CATEGORY_LABELS: Record<
   CategoryKey,
   { name: string; emoji: string }
@@ -25,6 +17,19 @@ export const CATEGORY_LABELS: Record<
   vegetables: { name: "Vegetables", emoji: "🥕" },
   binder: { name: "Creamy Binder", emoji: "🥣" },
   topper: { name: "Crispy Topper", emoji: "✨" },
+};
+
+export const CATEGORY_TIPS: Record<CategoryKey, string> = {
+  starch:
+    "The foundation! Rice, pasta, potatoes, or bread that goes INSIDE. Will absorb moisture and get soft/tender during baking.",
+  protein:
+    "Pre-cook or use pre-cooked protein. Shred, cube, or crumble for even distribution. Season before adding!",
+  vegetables:
+    "Fresh veggies release moisture while cooking. Sauté wet veggies first, or use roasted/frozen to control moisture.",
+  binder:
+    "The glue! Add gradually - start with less, you can always add more. Should coat ingredients, not drown them.",
+  topper:
+    "Goes on TOP, added last 10-15 min of baking. Crispy things inside will get soft (not always bad, but not crispy).",
 };
 
 export const FLAVOR_PROFILES = {
