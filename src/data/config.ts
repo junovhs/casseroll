@@ -8,6 +8,14 @@ export const CATEGORIES = [
 
 export type CategoryKey = (typeof CATEGORIES)[number];
 
+// Categories that allow multiple ingredients (up to 3)
+export const MULTI_CATEGORIES: CategoryKey[] = [
+  "starch",
+  "protein",
+  "vegetables",
+  "topper",
+];
+
 export const CATEGORY_LABELS: Record<
   CategoryKey,
   { name: string; emoji: string }
