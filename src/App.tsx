@@ -16,6 +16,7 @@ import {
   generateName,
   Recipe,
   Ingredient,
+  getPool,
 } from "./lib/engine";
 import IngredientRow from "./components/IngredientRow";
 import {
@@ -26,9 +27,20 @@ import {
   Unlock,
   RefreshCw,
   ChevronDown,
+  RotateCcw,
 } from "lucide-react";
 
 type LockState = Record<CategoryKey, Set<number>>;
+
+// Helper to pick random item avoiding exclusions
+const pickRandom = <T extends { id: string }>(
+  pool: T[],
+  excludeIds: string[],
+): T => {
+  const available = pool.filter((item) => !excludeIds.includes(item.id));
+  if (available.length === 0) return pool[0];
+  return available[Math.floor(Math.random() * available.length)];
+};
 
 export default function App() {
   const [recipe, setRecipe] = useState<Recipe>(() => generateCasserole());
@@ -48,20 +60,38 @@ export default function App() {
 
   // UI state
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [profileDropdownPos, setProfileDropdownPos] = useState({
+    top: 0,
+    left: 0,
+  });
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(recipe.name);
+  const profileButtonRef = useRef<HTMLButtonElement>(null);
   const profileDropdownRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   const currentProfile =
     FLAVOR_PROFILES[recipe.profile as keyof typeof FLAVOR_PROFILES];
 
+  // Position profile dropdown when opened
+  useEffect(() => {
+    if (showProfileDropdown && profileButtonRef.current) {
+      const rect = profileButtonRef.current.getBoundingClientRect();
+      setProfileDropdownPos({
+        top: rect.bottom + 8,
+        left: rect.left + rect.width / 2,
+      });
+    }
+  }, [showProfileDropdown]);
+
   // Close profile dropdown on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (
         profileDropdownRef.current &&
-        !profileDropdownRef.current.contains(e.target as Node)
+        !profileDropdownRef.current.contains(e.target as Node) &&
+        profileButtonRef.current &&
+        !profileButtonRef.current.contains(e.target as Node)
       ) {
         setShowProfileDropdown(false);
       }
@@ -79,47 +109,78 @@ export default function App() {
     }
   }, [editingName]);
 
-  // Get locked ingredients for full roll
-  const getLockedIngredients = ():
-    | Record<CategoryKey, Ingredient[]>
-    | undefined => {
-    const locked: Record<CategoryKey, Ingredient[]> = {} as any;
-    let hasLocks = false;
-
-    CATEGORIES.forEach((cat) => {
-      const lockedIndices = ingredientLocks[cat];
-      if (lockedIndices.size > 0) {
-        hasLocks = true;
-        locked[cat] = recipe.ingredients[cat].filter((_, i) =>
-          lockedIndices.has(i),
-        );
-      }
-    });
-
-    return hasLocks ? locked : undefined;
-  };
-
   const handleFullRoll = () => {
     setIsSpinning(true);
     setSpinningCategory("ALL");
 
     setTimeout(() => {
-      const newRecipe = generateCasserole({
-        chaosMode,
-        lockedProfile: profileLocked ? recipe.profile : undefined,
-        lockedIngredients: getLockedIngredients(),
-      });
-
-      // Preserve name if user edited it
-      if (editingName || nameInput !== recipe.name) {
-        newRecipe.name = nameInput;
+      // Determine profile
+      const profileKeys = Object.keys(FLAVOR_PROFILES) as ProfileKey[];
+      let newProfile: ProfileKey;
+      if (profileLocked) {
+        newProfile = recipe.profile;
+      } else if (chaosMode) {
+        newProfile = "chaos";
+      } else {
+        newProfile =
+          profileKeys[Math.floor(Math.random() * profileKeys.length)];
       }
 
-      setRecipe(newRecipe);
-      setNameInput(newRecipe.name);
+      // Build new ingredients, preserving slot counts
+      const newIngredients: Record<CategoryKey, Ingredient[]> = {} as any;
+
+      CATEGORIES.forEach((cat) => {
+        const currentSlots = recipe.ingredients[cat];
+        const lockedIndices = ingredientLocks[cat];
+        const pool = getPool(cat, newProfile, chaosMode);
+
+        const newSlot: Ingredient[] = [];
+        const usedIds: string[] = [];
+
+        // For each slot position, either keep locked ingredient or roll new
+        for (let i = 0; i < currentSlots.length; i++) {
+          if (lockedIndices.has(i)) {
+            // Keep locked ingredient
+            newSlot.push(currentSlots[i]);
+            usedIds.push(currentSlots[i].id);
+          } else {
+            // Roll new ingredient
+            const picked = pickRandom(pool, usedIds);
+            newSlot.push(picked);
+            usedIds.push(picked.id);
+          }
+        }
+
+        newIngredients[cat] = newSlot;
+      });
+
+      const newName =
+        editingName || nameInput !== recipe.name
+          ? nameInput
+          : generateName(newProfile, chaosMode);
+
+      setRecipe({
+        name: newName,
+        profile: newProfile,
+        ingredients: newIngredients,
+      });
+      setNameInput(newName);
       setIsSpinning(false);
       setSpinningCategory(null);
     }, 600);
+  };
+
+  const handleReset = () => {
+    const fresh = generateCasserole({ chaosMode });
+    setRecipe(fresh);
+    setNameInput(fresh.name);
+    setIngredientLocks(
+      CATEGORIES.reduce(
+        (acc, cat) => ({ ...acc, [cat]: new Set<number>() }),
+        {} as LockState,
+      ),
+    );
+    setProfileLocked(false);
   };
 
   const handleNameReroll = () => {
@@ -187,7 +248,6 @@ export default function App() {
       prev[category].forEach((i) => {
         if (i < index) newSet.add(i);
         else if (i > index) newSet.add(i - 1);
-        // i === index is removed
       });
       return { ...prev, [category]: newSet };
     });
@@ -212,7 +272,7 @@ export default function App() {
         </div>
 
         {/* Recipe Card */}
-        <div className="bg-white rounded-3xl shadow-xl shadow-amber-900/10 border-4 border-white p-6 mb-6 relative overflow-hidden transition-all">
+        <div className="bg-white rounded-3xl shadow-xl shadow-amber-900/10 border-4 border-white p-6 mb-6 relative transition-all">
           {/* Card Header */}
           <div
             className={`text-center mb-6 transition-all duration-300 ${
@@ -237,7 +297,7 @@ export default function App() {
                       setEditingName(false);
                     }
                   }}
-                  className="text-2xl font-bold text-slate-800 text-center bg-amber-50 border-2 border-amber-200 rounded-lg px-3 py-1 focus:outline-none focus:border-amber-400"
+                  className="text-2xl font-bold text-slate-800 text-center bg-amber-50 border-2 border-amber-200 rounded-lg px-3 py-1 focus:outline-none focus:border-amber-400 max-w-[280px]"
                 />
               ) : (
                 <button
@@ -258,17 +318,15 @@ export default function App() {
             </div>
 
             {/* Profile/Cuisine Selector */}
-            <div
-              className="flex justify-center items-center gap-2"
-              ref={profileDropdownRef}
-            >
+            <div className="flex justify-center items-center gap-2">
               {recipe.profile === "chaos" ? (
                 <span className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-purple-600 text-white text-xs font-bold uppercase tracking-wider rounded-full shadow-lg shadow-purple-200">
                   <Sparkles className="w-3 h-3" /> Wild Magic
                 </span>
               ) : (
-                <div className="relative">
+                <>
                   <button
+                    ref={profileButtonRef}
                     onClick={() => setShowProfileDropdown(!showProfileDropdown)}
                     className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-amber-100 text-amber-800 text-xs font-bold uppercase tracking-wider rounded-full border border-amber-200 hover:bg-amber-200 transition-colors"
                   >
@@ -278,8 +336,17 @@ export default function App() {
                     />
                   </button>
 
+                  {/* Fixed position dropdown */}
                   {showProfileDropdown && (
-                    <div className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-2 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden min-w-[200px]">
+                    <div
+                      ref={profileDropdownRef}
+                      className="fixed z-[100] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden min-w-[200px]"
+                      style={{
+                        top: profileDropdownPos.top,
+                        left: profileDropdownPos.left,
+                        transform: "translateX(-50%)",
+                      }}
+                    >
                       {Object.entries(FLAVOR_PROFILES).map(([key, value]) => (
                         <button
                           key={key}
@@ -296,7 +363,7 @@ export default function App() {
                       ))}
                     </div>
                   )}
-                </div>
+                </>
               )}
 
               {/* Profile Lock */}
@@ -344,7 +411,7 @@ export default function App() {
         </div>
 
         {/* Action Area */}
-        <div className="mt-auto space-y-5 pb-6">
+        <div className="mt-auto space-y-4 pb-6">
           <button
             onClick={handleFullRoll}
             disabled={isSpinning}
@@ -356,27 +423,40 @@ export default function App() {
             <span>ROLL FOR DINNER</span>
           </button>
 
-          {/* Chaos Toggle */}
-          <div className="flex justify-center">
-            <label className="group relative inline-flex items-center cursor-pointer select-none">
+          {/* Controls row */}
+          <div className="flex items-center justify-center gap-4">
+            {/* Chaos Toggle */}
+            <label className="group inline-flex items-center cursor-pointer select-none">
               <input
                 type="checkbox"
                 className="sr-only peer"
                 checked={chaosMode}
                 onChange={() => setChaosMode(!chaosMode)}
               />
-              <div className="w-14 h-7 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-purple-600 shadow-inner"></div>
-              <span className="ml-3 text-sm font-bold text-slate-400 group-hover:text-purple-600 transition-colors">
-                Total Chaos Mode
+              <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600 shadow-inner relative"></div>
+              <span className="ml-2 text-xs font-bold text-slate-400 group-hover:text-purple-600 transition-colors">
+                Chaos
               </span>
             </label>
+
+            <div className="w-px h-4 bg-slate-200" />
+
+            {/* Reset Button */}
+            <button
+              onClick={handleReset}
+              className="inline-flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-red-500 transition-colors"
+              title="Reset everything"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Reset
+            </button>
           </div>
         </div>
 
         {/* Footer */}
         <div className="text-center">
           <p className="text-amber-900/20 text-xs font-mono">
-            v3.0 • 350°F • 45 MIN
+            v3.1 • 350°F • 45 MIN
           </p>
         </div>
       </div>

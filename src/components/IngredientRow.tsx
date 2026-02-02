@@ -129,6 +129,8 @@ function IngredientItem({
 }: ItemProps) {
   const [showDropdown, setShowDropdown] = useState(false);
   const [search, setSearch] = useState("");
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, left: 0, width: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -145,22 +147,44 @@ function IngredientItem({
       )
     : filteredPool;
 
-  // Close dropdown on outside click
+  // Position dropdown when opened
+  useEffect(() => {
+    if (showDropdown && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 250),
+      });
+      inputRef.current?.focus();
+    }
+  }, [showDropdown]);
+
+  // Close dropdown on outside click or scroll
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(e.target as Node)
+        !dropdownRef.current.contains(e.target as Node) &&
+        buttonRef.current &&
+        !buttonRef.current.contains(e.target as Node)
       ) {
         setShowDropdown(false);
         setSearch("");
       }
     };
+    const handleScroll = () => {
+      setShowDropdown(false);
+      setSearch("");
+    };
     if (showDropdown) {
       document.addEventListener("mousedown", handleClick);
-      inputRef.current?.focus();
+      window.addEventListener("scroll", handleScroll, true);
     }
-    return () => document.removeEventListener("mousedown", handleClick);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
   }, [showDropdown]);
 
   return (
@@ -188,9 +212,10 @@ function IngredientItem({
         )}
       </button>
 
-      {/* Ingredient Name / Dropdown */}
-      <div className="flex-1 min-w-0 relative" ref={dropdownRef}>
+      {/* Ingredient Name / Dropdown Trigger */}
+      <div className="flex-1 min-w-0">
         <button
+          ref={buttonRef}
           onClick={() => !isSpinning && setShowDropdown(!showDropdown)}
           disabled={isSpinning}
           className={`w-full flex items-center gap-1 text-left text-slate-800 font-semibold truncate transition-all duration-200 hover:text-amber-700 ${
@@ -203,9 +228,17 @@ function IngredientItem({
           />
         </button>
 
-        {/* Dropdown */}
+        {/* Fixed Position Dropdown (portaled to body level) */}
         {showDropdown && (
-          <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden">
+          <div
+            ref={dropdownRef}
+            className="fixed z-[100] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden"
+            style={{
+              top: dropdownPos.top,
+              left: dropdownPos.left,
+              width: dropdownPos.width,
+            }}
+          >
             {/* Search Input */}
             <div className="p-2 border-b border-slate-100">
               <input
