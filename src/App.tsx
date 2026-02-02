@@ -52,7 +52,7 @@ export default function App() {
             </h1>
           </div>
           <p className="text-amber-800/60 font-medium font-serif italic text-lg">
-            "Roll for dinner initiative"
+            "Discover guaranteed delicious new casseroles."
           </p>
         </div>
 
